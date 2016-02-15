@@ -6,7 +6,7 @@
     android:layout_width="match_parent"
     android:layout_height="match_parent"
     android:fitsSystemWindows="true"
-    tools:context="ledkis.module.mallarme.MainActivity">
+    tools:context="ledkis.module.mallarme.example.MainActivity">
 
     <include layout="@layout/content_main"/>
 

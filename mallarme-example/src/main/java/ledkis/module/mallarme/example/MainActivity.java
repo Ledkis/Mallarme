@@ -1,12 +1,14 @@
-package ledkis.module.mallarme;
+package ledkis.module.mallarme.example;
 
 import android.os.Bundle;
 import android.support.v7.app.AppCompatActivity;
-import android.util.Log;
 import android.view.MotionEvent;
 import android.view.View;
 import android.view.Menu;
 import android.view.MenuItem;
+
+import ledkis.module.mallarme.MallarmeView;
+import ledkis.module.mallarme.Utils;
 
 public class MainActivity extends AppCompatActivity {
 
