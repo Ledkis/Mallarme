@@ -1,110 +1,96 @@
 package ledkis.module.mallarme;
 
+import android.animation.Animator;
+import android.animation.ObjectAnimator;
+import android.animation.ValueAnimator;
 import android.annotation.TargetApi;
 import android.app.Activity;
 import android.content.Context;
 import android.graphics.Bitmap;
 import android.graphics.Canvas;
-import android.graphics.Color;
-import android.graphics.PorterDuff;
 import android.os.Build;
 import android.os.Handler;
 import android.util.AttributeSet;
 import android.util.TypedValue;
-import android.view.Gravity;
 import android.view.LayoutInflater;
 import android.view.View;
 import android.view.ViewGroup;
 import android.view.ViewTreeObserver;
+import android.widget.FrameLayout;
 import android.widget.RelativeLayout;
 import android.widget.TextView;
 
-import ledkis.module.mallarme.animation.AnimationFactory;
-import ledkis.module.mallarme.animation.AnimationListener;
+import java.util.Random;
+
 
 /**
  * Created by ledkis on 15/02/2016.
  */
 public class MallarmeView extends RelativeLayout {
 
-    /**
-     * Mask color
-     */
+    public static final String TAG = "MallarmeView";
+
+
+    public interface AnimationListener {
+
+        /**
+         * We need to make MaterialIntroView visible
+         * before fade in animation starts
+         */
+        interface OnAnimationStartListener {
+            void onAnimationStart();
+        }
+
+        /**
+         * We need to make MaterialIntroView invisible
+         * after fade out animation ends.
+         */
+        interface OnAnimationEndListener {
+            void onAnimationEnd();
+        }
+
+    }
+
     private int maskColor;
-
-    /**
-     * MallarmeView will start
-     * showing after delayMillis seconds
-     * passed
-     */
     private long delayMillis;
-
-    /**
-     * We don't draw MallarmeView
-     * until isReady field set to true
-     */
     private boolean isReady;
-
-    /**
-     * Show/Dismiss MallarmeView
-     * with fade in/out animation if
-     * this is enabled.
-     */
     private boolean isFadeAnimationEnabled;
-
-    /**
-     * Animation duration
-     */
     private long fadeInAnimationDuration;
-
     private long fadeOutAnimationDuration;
 
-    /**
-     * Handler will be used to
-     * delay MallarmeView
-     */
     private Handler handler;
 
-    /**
-     * All views will be drawn to
-     * this bitmap and canvas then
-     * bitmap will be drawn to canvas
-     */
     private Bitmap bitmap;
     private Canvas canvas;
 
-    /**
-     * Layout width/height
-     */
     private int width;
     private int height;
 
-    /**
-     * Dismiss on touch any position
-     */
+    private int textWidth;
+    private int textHeight;
+
+    private float textLeftMargin;
+    private float textLeftMarginProgress;
+    private float lastTextLeftMargin;
+
     private boolean dismissOnTouch;
 
-    /**
-     * Info dialog view
-     */
+    private MallarmeTextManager mallarmeTextManager;
+
     private View poemeVerseView;
 
-    /**
-     * Info Dialog Text
-     */
     private TextView poemeVerseTextView;
 
-    /**
-     * Info dialog text color
-     */
-    private int colorTextViewInfo;
+    private Random random = new Random();
 
+    private int verseCount;
 
-    /**
-     * When layout completed, we set this true
-     * Otherwise onGlobalLayoutListener stuck on loop.
-     */
     private boolean isLayoutCompleted;
+
+    private ValueAnimator textAnimator;
+    private ValueAnimator fadeAnimator;
+
+    private float currentAlpha;
 
     public MallarmeView(Context context) {
         super(context);
@@ -131,38 +117,35 @@ public class MallarmeView extends RelativeLayout {
         setWillNotDraw(false);
         setVisibility(INVISIBLE);
 
-        /**
-         * set default values
-         */
         maskColor = Constants.DEFAULT_MASK_COLOR;
         delayMillis = Constants.DEFAULT_DELAY_MILLIS;
         fadeInAnimationDuration = Constants.DEFAULT_FADE_DURATION;
         fadeOutAnimationDuration = Constants.DEFAULT_FADE_DURATION;
-        colorTextViewInfo = Constants.DEFAULT_COLOR_TEXTVIEW_INFO;
         isReady = false;
         isFadeAnimationEnabled = true;
         dismissOnTouch = false;
         isLayoutCompleted = false;
 
-        /**
-         * initialize objects
-         */
+        verseCount = 0;
+
         handler = new Handler();
 
+        mallarmeTextManager = new MallarmeTextManager(context, "mallarme.txt", false);
 
-        View layoutInfo = LayoutInflater.from(getContext()).inflate(R.layout.poeme_verse, null);
+        View poemeVerseLayout = LayoutInflater.from(getContext()).inflate(R.layout.poeme_verse_layout, null);
+        poemeVerseView = poemeVerseLayout.findViewById(R.id.poemeVerseView);
+        poemeVerseTextView = (TextView) poemeVerseLayout.findViewById(R.id.poemeVerseTextView);
 
-        poemeVerseView = layoutInfo.findViewById(R.id.info_layout);
-        poemeVerseTextView = (TextView) layoutInfo.findViewById(R.id.poemeVerseTextView);
-        poemeVerseTextView.setTextColor(colorTextViewInfo);
+        updateText();
 
+        currentAlpha = 0f;
 
         getViewTreeObserver().addOnGlobalLayoutListener(new ViewTreeObserver.OnGlobalLayoutListener() {
             @Override
             public void onGlobalLayout() {
                 // in the case showcaseViewCase y can be 0 : the targetView can be centered
                 if (!isLayoutCompleted) {
-                        setInfoLayout();
+                    setInfoLayout();
 
                     removeOnGlobalLayoutListener(MallarmeView.this, this);
                 }
@@ -201,58 +184,24 @@ public class MallarmeView extends RelativeLayout {
             this.canvas = new Canvas(bitmap);
         }
 
-        /**
-         * Draw mask
-         */
-        this.canvas.drawColor(Color.TRANSPARENT, PorterDuff.Mode.CLEAR);
+//        this.canvas.drawColor(Color.TRANSPARENT, PorterDuff.Mode.CLEAR);
         this.canvas.drawColor(maskColor);
 
         canvas.drawBitmap(bitmap, 0, 0, null);
     }
 
-    /**
-     * Shows material view with fade in
-     * animation
-     *
-     * @param activity
-     */
-    private void show(Activity activity) {
-
+    public void add(Activity activity){
         ((ViewGroup) activity.getWindow().getDecorView()).addView(this);
 
         setReady(true);
-
-        handler.postDelayed(new Runnable() {
-            @Override
-            public void run() {
-                if (isFadeAnimationEnabled)
-                    AnimationFactory.animateFadeIn(MallarmeView.this, fadeInAnimationDuration, new AnimationListener.OnAnimationStartListener() {
-                        @Override
-                        public void onAnimationStart() {
-                            setVisibility(VISIBLE);
-                        }
-                    });
-                else
-                    setVisibility(VISIBLE);
-            }
-        }, delayMillis);
-
     }
 
-    /**
-     * Dismiss Material Intro View
-     */
-    private void dismiss() {
-        AnimationFactory.animateFadeOut(this, fadeOutAnimationDuration, new AnimationListener.OnAnimationEndListener() {
-            @Override
-            public void onAnimationEnd() {
-                setVisibility(GONE);
-                removeMaterialView();
 
-                bitmap.recycle();
+    public void dismiss() {
+        setVisibility(GONE);
+        removeMaterialView();
 
-            }
-        });
+//        bitmap.recycle();
     }
 
     private void removeMaterialView() {
@@ -260,12 +209,6 @@ public class MallarmeView extends RelativeLayout {
             ((ViewGroup) getParent()).removeView(this);
     }
 
-    /**
-     * locate info card view above/below the
-     * circle. If circle's Y coordiante is bigger than
-     * Y coordinate of root view, then locate cardview
-     * above the circle. Otherwise locate below.
-     */
     private void setInfoLayout() {
 
         handler.post(new Runnable() {
@@ -273,164 +216,226 @@ public class MallarmeView extends RelativeLayout {
             public void run() {
                 isLayoutCompleted = true;
 
-//                if (poemeVerseView.getParent() != null)
-//                    ((ViewGroup) poemeVerseView.getParent()).removeView(poemeVerseView);
+                if (poemeVerseView.getParent() != null)
+                    ((ViewGroup) poemeVerseView.getParent()).removeView(poemeVerseView);
+
+                FrameLayout.LayoutParams poemeVerseViewParams = new FrameLayout.LayoutParams(
+                        ViewGroup.LayoutParams.WRAP_CONTENT,
+                        ViewGroup.LayoutParams.WRAP_CONTENT);
+
+                poemeVerseViewParams.setMargins(
+                        width / 2,
+                        height / 2,
+                        0,
+                        0);
 //
-//                RelativeLayout.LayoutParams infoDialogParams = new RelativeLayout.LayoutParams(
-//                        ViewGroup.LayoutParams.MATCH_PARENT,
-//                        ViewGroup.LayoutParams.MATCH_PARENT);
-//
-//                if (circleShape.getPoint().y < height / 2) {
-//                    ((RelativeLayout) poemeVerseView).setGravity(Gravity.TOP);
-//                    infoDialogParams.setMargins(
-//                            0,
-//                            circleShape.getPoint().y + circleShape.getRadius(),
-//                            0,
-//                            0);
-//                } else {
-//                    ((RelativeLayout) poemeVerseView).setGravity(Gravity.BOTTOM);
-//                    infoDialogParams.setMargins(
-//                            0,
-//                            0,
-//                            0,
-//                            height - (circleShape.getPoint().y + circleShape.getRadius()) + 2 * circleShape.getRadius());
-//                }
-//
-//                poemeVerseView.setLayoutParams(infoDialogParams);
-//                poemeVerseView.postInvalidate();
-//
-//                addView(poemeVerseView);
-//
-//                poemeVerseView.setVisibility(VISIBLE);
-//
-//                poemeVerseView.setOnClickListener(new OnClickListener() {
-//                    @Override
-//                    public void onClick(View v) {
-//                        dismiss();
-//                    }
-//                });
+                poemeVerseTextView.setLayoutParams(poemeVerseViewParams);
+                poemeVerseTextView.invalidate();
+
+                addView(poemeVerseView);
+
+                poemeVerseView.setVisibility(VISIBLE);
 
             }
         });
     }
 
 
-    /**
-     * SETTERS
-     */
-
-    private void setMaskColor(int maskColor) {
-        this.maskColor = maskColor;
-    }
-
-    private void setDelay(int delayMillis) {
-        this.delayMillis = delayMillis;
-    }
-
-    public void setFadeInAnimationDuration(long fadeInAnimationDuration) {
-        this.fadeInAnimationDuration = fadeInAnimationDuration;
-    }
-
-    public void setFadeOutAnimationDuration(long fadeOutAnimationDuration) {
-        this.fadeOutAnimationDuration = fadeOutAnimationDuration;
-    }
-
-    private void enableFadeAnimation(boolean isFadeAnimationEnabled) {
-        this.isFadeAnimationEnabled = isFadeAnimationEnabled;
-    }
-
     private void setReady(boolean isReady) {
         this.isReady = isReady;
     }
 
-    private void setDismissOnTouch(boolean dismissOnTouch) {
-        this.dismissOnTouch = dismissOnTouch;
+    public void startTextAnimation() {
+
+        if(null != textAnimator)
+            textAnimator.cancel();
+
+
+        textAnimator = ObjectAnimator.ofFloat(0f, 1f);
+        textAnimator.setRepeatCount(ValueAnimator.INFINITE);
+        textAnimator.setDuration(3000);
+
+        textAnimator.addUpdateListener(new ValueAnimator.AnimatorUpdateListener() {
+            @Override
+            public void onAnimationUpdate(ValueAnimator animation) {
+
+                float progress = (Float) animation.getAnimatedValue();
+
+                float alpha;
+                if (progress < 0.5f) {
+                    alpha = progress;
+                } else {
+                    alpha = 1f - progress;
+                }
+
+                poemeVerseView.setAlpha(alpha);
+
+                translateText(progress);
+
+            }
+        });
+
+        textAnimator.addListener(new Animator.AnimatorListener() {
+            @Override
+            public void onAnimationStart(Animator animation) {
+                poemeVerseView.setY(height / 3);
+            }
+
+            @Override
+            public void onAnimationEnd(Animator animation) {
+            }
+
+            @Override
+            public void onAnimationCancel(Animator animation) {
+
+            }
+
+            @Override
+            public void onAnimationRepeat(Animator animation) {
+
+                updateText();
+                updateTextPos();
+
+            }
+        });
+
+        textAnimator.start();
+
     }
 
-    private void setColorTextViewInfo(int colorTextViewInfo) {
-        this.colorTextViewInfo = colorTextViewInfo;
-        poemeVerseTextView.setTextColor(this.colorTextViewInfo);
+    private void updateText(){
+        verseCount +=1;
+        poemeVerseTextView.setText(mallarmeTextManager.getVerse(verseCount));
+        poemeVerseTextView.setTextSize(TypedValue.COMPLEX_UNIT_SP, mallarmeTextManager.getVerseSize(verseCount));
     }
 
-    private void setPoemeVerseTextView(String poemeVerseTextView) {
-        this.poemeVerseTextView.setText(poemeVerseTextView);
+    private void updateTextPos() {
+
+        float widthRatio = 2 * Utils.map(random.nextFloat(), 0f, 1f, 0.1f, 0.9f);
+        float heightRatio = 2 * Utils.map(random.nextFloat(), 0f, 1f, 0.1f, 0.9f);
+
+        FrameLayout.LayoutParams poemeVerseViewParams = (FrameLayout.LayoutParams) poemeVerseTextView.getLayoutParams();
+
+        textLeftMargin = widthRatio * width / 2;
+        textLeftMarginProgress = lastTextLeftMargin;
+        lastTextLeftMargin = 0;
+
+        poemeVerseViewParams.leftMargin = (int) textLeftMargin;
+        poemeVerseViewParams.topMargin = (int) (heightRatio * height / 2);
+        poemeVerseTextView.setLayoutParams(poemeVerseViewParams);
     }
 
-    private void setTextViewInfoSize(int textViewInfoSize) {
-        this.poemeVerseTextView.setTextSize(TypedValue.COMPLEX_UNIT_SP, textViewInfoSize);
+    private void translateText(float progress) {
+        FrameLayout.LayoutParams poemeVerseViewParams = (FrameLayout.LayoutParams) poemeVerseTextView.getLayoutParams();
+
+        textLeftMarginProgress += (0.1f * progress * width) - lastTextLeftMargin;
+        lastTextLeftMargin = textLeftMarginProgress;
+
+        poemeVerseViewParams.leftMargin = (int) (textLeftMargin + textLeftMarginProgress);
+        poemeVerseTextView.setLayoutParams(poemeVerseViewParams);
     }
 
 
-    /**
-     * Builder Class
-     */
-    public static class Builder {
+    public void fadeIn() {
 
-        private MallarmeView mallarmeView;
-
-        private Activity activity;
-
-
-        public Builder(Activity activity) {
-            this.activity = activity;
-            mallarmeView = new MallarmeView(activity);
-        }
-
-        public Builder setMaskColor(int maskColor) {
-            mallarmeView.setMaskColor(maskColor);
-            return this;
-        }
-
-        public Builder setDelayMillis(int delayMillis) {
-            mallarmeView.setDelay(delayMillis);
-            return this;
-        }
-
-        public Builder setFadeInAnimationDuration(long fadeInAnimationDuration) {
-            mallarmeView.setFadeInAnimationDuration(fadeInAnimationDuration);
-            return this;
-        }
-
-        public Builder setFadeOutAnimationDuration(long fadeOutAnimationDuration) {
-            mallarmeView.setFadeOutAnimationDuration(fadeOutAnimationDuration);
-            return this;
-        }
-
-        public Builder enableFadeAnimation(boolean isFadeAnimationEnabled) {
-            mallarmeView.enableFadeAnimation(isFadeAnimationEnabled);
-            return this;
-        }
+        handler.post(new Runnable() {
+            @Override
+            public void run() {
+                if (null != fadeAnimator)
+                    fadeAnimator.cancel();
 
 
-        public Builder setTextColor(int textColor) {
-            mallarmeView.setColorTextViewInfo(textColor);
-            return this;
-        }
+                fadeAnimator = ValueAnimator.ofFloat(currentAlpha, 1f);
+                fadeAnimator.setDuration(fadeInAnimationDuration);
 
-        public Builder setInfoText(String poemeVerse) {
-            mallarmeView.setPoemeVerseTextView(poemeVerse);
-            return this;
-        }
+                fadeAnimator.addUpdateListener(new ValueAnimator.AnimatorUpdateListener() {
+                    @Override
+                    public void onAnimationUpdate(ValueAnimator animation) {
+                        currentAlpha = (Float) animation.getAnimatedValue();
 
-        public Builder setInfoTextSize(int textSize) {
-            mallarmeView.setTextViewInfoSize(textSize);
-            return this;
-        }
+                        setAlpha(currentAlpha);
+                    }
+                });
 
-        public Builder dismissOnTouch(boolean dismissOnTouch) {
-            mallarmeView.setDismissOnTouch(dismissOnTouch);
-            return this;
-        }
+                fadeAnimator.addListener(new Animator.AnimatorListener() {
+                    @Override
+                    public void onAnimationStart(Animator animation) {
+                        setVisibility(VISIBLE);
+                        startTextAnimation();
+                    }
+
+                    @Override
+                    public void onAnimationEnd(Animator animation) {
+
+                    }
+
+                    @Override
+                    public void onAnimationCancel(Animator animation) {
+                        if(null != textAnimator)
+                            textAnimator.cancel();
+                    }
+
+                    @Override
+                    public void onAnimationRepeat(Animator animation) {
+
+                    }
+                });
+
+                fadeAnimator.start();
+            }
+        });
 
 
-        public MallarmeView build() {
-            return mallarmeView;
-        }
+    }
 
-        public MallarmeView show() {
-            build().show(activity);
-            return mallarmeView;
-        }
+    public void fadeOut() {
+        handler.post(new Runnable() {
+            @Override
+            public void run() {
+                if (null != fadeAnimator)
+                    fadeAnimator.cancel();
+
+
+                fadeAnimator = ValueAnimator.ofFloat(currentAlpha, 0f);
+                fadeAnimator.setDuration(fadeOutAnimationDuration);
+
+                fadeAnimator.addUpdateListener(new ValueAnimator.AnimatorUpdateListener() {
+                    @Override
+                    public void onAnimationUpdate(ValueAnimator animation) {
+                        currentAlpha = (Float) animation.getAnimatedValue();
+
+                        setAlpha(currentAlpha);
+                    }
+                });
+
+                fadeAnimator.addListener(new Animator.AnimatorListener() {
+                    @Override
+                    public void onAnimationStart(Animator animation) {
+
+                    }
+
+                    @Override
+                    public void onAnimationEnd(Animator animation) {
+                        setVisibility(GONE);
+                        if(null != textAnimator)
+                            textAnimator.cancel();
+                    }
+
+                    @Override
+                    public void onAnimationCancel(Animator animation) {
+                        if(null != textAnimator)
+                            textAnimator.cancel();
+                    }
+
+                    @Override
+                    public void onAnimationRepeat(Animator animation) {
+
+                    }
+                });
+
+                fadeAnimator.start();
+            }
+        });
 
     }
 
